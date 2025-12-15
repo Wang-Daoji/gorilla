@@ -1,4 +1,6 @@
 import json
+import os
+
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
@@ -64,6 +66,66 @@ class BaseHandler:
         # Set any additional attributes passed via kwargs
         for _key, _value in kwargs.items():
             setattr(self, _key, _value)
+
+        self.memory_client = self.get_client()
+
+    def get_client(self) -> Any:
+        if os.getenv("FRAME") == "memobase":
+            from utils.client import MemobaseClient
+
+            return MemobaseClient()
+        elif os.getenv("FRAME") == "memos-api":
+            from utils.client import MemosApiClient
+
+            return MemosApiClient()
+        elif os.getenv("FRAME") == "memos-api-online":
+            from utils.client import MemosApiOnlineClient
+
+            return MemosApiOnlineClient()
+        elif os.getenv("FRAME") == "memu":
+            from utils.client import MemuClient
+
+            return MemuClient()
+        elif os.getenv("FRAME") == "supermemory":
+            from utils.client import SupermemoryClient
+
+            return SupermemoryClient()
+        elif os.getenv("FRAME") == "mem0":
+            from utils.client import Mem0Client
+
+            return Mem0Client()
+        else:
+            raise ValueError(f"Invalid frame: {os.getenv('FRAME')}")
+
+    def search_memory(self, query: str, test_entry_id: str, top_k: int) -> str:
+        version = os.getenv("VERSION", "default_version")
+        frame = os.getenv("FRAME")
+        user_id = f"{test_entry_id}_{frame}_{version}"
+        search_context = self.memory_client.search(query=query, user_id=user_id, top_k=top_k)
+        if frame == "memos-api":
+            # text_mem_context = "\n".join([f"{i+1}. fact_memory: {item['memory']}" for i, item in enumerate(search_context["text_mem"][0]["memories"])])
+            text_mem_context = ""
+            tool_trajectory_memories = [
+                item
+                for item in search_context["tool_mem"][0]["memories"]
+                if item["metadata"]["memory_type"] == "ToolTrajectoryMemory"
+            ]
+            tool_mem_context = "\n".join(
+                [
+                    f"{i + 1}. tool_trajectory: {item['memory']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
+                    for i, item in enumerate(tool_trajectory_memories)
+                ]
+            )
+
+            if text_mem_context:
+                text_mem_context = "Fact Memory:\n" + text_mem_context
+            if tool_mem_context:
+                tool_mem_context = "Tool Memory:\n" + tool_mem_context
+
+            mem_context = text_mem_context + "\n" + tool_mem_context
+
+        prompt = f"exacute tool call based on the memories below:\n\ {mem_context}\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`.\n\nQuery: {query}"
+        return prompt
 
     def inference(
         self,
@@ -136,7 +198,7 @@ class BaseHandler:
                 len(involved_instances) == 1
             ), "Memory category should only involve one class."
 
-            memory_instance: "MemoryAPI" = list(involved_instances.values())[0]
+            memory_instance: MemoryAPI = list(involved_instances.values())[0]
             test_entry["question"] = add_memory_instruction_system_prompt(
                 test_entry["question"],
                 test_category,
@@ -197,6 +259,12 @@ class BaseHandler:
                 inference_data = self._add_next_turn_user_message_FC(
                     inference_data, current_turn_message
                 )
+
+            # TODO: search from memory os and concat to the inference data (user content)
+            query = self.search_memory(
+                inference_data["message"][-1]["content"], test_entry["id"], 10
+            )
+            inference_data["message"][-1]["content"] = query
 
             current_turn_response = []
             current_turn_inference_log: list[dict] = {
@@ -490,6 +558,12 @@ class BaseHandler:
                     inference_data, current_turn_message
                 )
 
+            # TODO: search from memory os and concat to the inference data (user content)
+            query = self.search_memory(
+                inference_data["message"][-1]["content"], test_entry["id"], 10
+            )
+            inference_data["message"][-1]["content"] = query
+
             current_turn_response = []
             current_turn_reasoning_content = []
             current_turn_inference_log: list[dict] = {
@@ -688,9 +762,11 @@ class BaseHandler:
         inference_data: dict = {}
         inference_data = self._pre_query_processing_FC(inference_data, test_entry)
         inference_data = self._compile_tools(inference_data, test_entry)
-        inference_data = self.add_first_turn_message_FC(
-            inference_data, test_entry["question"][0]
-        )
+        inference_data = self.add_first_turn_message_FC(inference_data, test_entry["question"][0])
+
+        # TODO: search from memory os and concat to the inference data (user content)
+        query = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
+        inference_data["message"][-1]["content"] = query
 
         api_response, query_latency = self._query_FC(inference_data)
 
@@ -726,6 +802,10 @@ class BaseHandler:
         inference_data = self.add_first_turn_message_prompting(
             inference_data, test_entry["question"][0]
         )
+
+        # TODO: search from memory os and concat to the inference data (user content)
+        query = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
+        inference_data["message"][-1]["content"] = query
 
         api_response, query_latency = self._query_prompting(inference_data)
 

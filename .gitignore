@@ -44,3 +44,7 @@ berkeley-function-call-leaderboard/**/*.lock
 
 # Ignore the wandb cache:
 **/wandb/
+
+# Ignore the data and results for evaluation
+berkeley-function-call-leaderboard/data/
+berkeley-function-call-leaderboard/results/

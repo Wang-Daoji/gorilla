@@ -1,6 +1,13 @@
 import argparse
+import os
+import sys
 import statistics
 from collections import defaultdict
+
+# Add project root to Python path for utils imports
+sys.path.append(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from bfcl_eval.constants.enums import Language, ReturnFormat
 from bfcl_eval.constants.eval_config import *
@@ -825,12 +832,12 @@ def main(model, test_categories, result_dir, score_dir, partial_eval: bool = Fal
     if result_dir is None:
         result_dir = RESULT_PATH
     else:
-        result_dir = (PROJECT_ROOT / result_dir).resolve()
+        result_dir = Path(result_dir).resolve()
 
     if score_dir is None:
         score_dir = SCORE_PATH
     else:
-        score_dir = (PROJECT_ROOT / score_dir).resolve()
+        score_dir = Path(score_dir).resolve()
 
     if type(test_categories) is not list:
         test_categories = [test_categories]

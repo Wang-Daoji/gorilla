@@ -376,7 +376,7 @@ def main(args):
                 )
 
     if args.result_dir is not None:
-        args.result_dir = PROJECT_ROOT / args.result_dir
+        args.result_dir = Path(args.result_dir).resolve()
     else:
         args.result_dir = RESULT_PATH
 
