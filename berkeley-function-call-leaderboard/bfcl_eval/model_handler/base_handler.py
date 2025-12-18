@@ -121,7 +121,7 @@ class BaseHandler:
             ]
             tool_mem_context = "\n".join(
                 [
-                    f"{i + 1}. tool_trajectory: {item['memory']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
+                    f"{i + 1}. tool_trajectory: {item['memory']}\nexperience: {item['metadata']['experience']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
                     for i, item in enumerate(tool_trajectory_memories)
                 ]
             )
@@ -256,7 +256,7 @@ class BaseHandler:
                 seen_ids.add(item.get("id"))
                 dedup_mem_list.append(item)
         mem_context = self.create_mem_context(dedup_mem_list)
-        prompt = f"Exacute tool call based on the memories below:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+        prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
         if mem_context:
             inference_data["message"].insert(0, {"role": "developer", "content": prompt})
 
@@ -598,7 +598,7 @@ class BaseHandler:
                         seen_ids.add(item.get("id"))
                         dedup_mem_list.append(item)
                 mem_context = self.create_mem_context(dedup_mem_list)
-                prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+                prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
                 inference_data["message"][0]["content"] += prompt
 
             current_turn_response = []
@@ -804,7 +804,7 @@ class BaseHandler:
         # search from memory os and concat to the inference data
         mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
         mem_context = self.create_mem_context(mem_list)
-        prompt = f"Exacute tool call based on the memories below:\n{mem_context}\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`."
+        prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`."
         if mem_context:
             inference_data["message"].insert(0, {"role": "developer", "content": prompt})
 
@@ -846,7 +846,7 @@ class BaseHandler:
         # search from memory os and concat to the inference data
         mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
         mem_context = self.create_mem_context(mem_list)
-        prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+        prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
         inference_data["message"][0]["content"] += prompt
 
         api_response, query_latency = self._query_prompting(inference_data)

@@ -17,10 +17,10 @@ print(f"sys.path: {sys.path}")
 
 def load_data(data_dir: str) -> list:
     """
-    Load all JSONL files from the specified directory into a single list.
+    Load JSONL file(s) from the specified path into a single list.
 
     Args:
-        data_dir: Path to the directory containing JSONL files. If None, uses default path relative to this script.
+        data_dir: Path to a directory containing JSONL files or a single JSONL file.
 
     Returns:
         List containing all JSON objects from all JSONL files.
@@ -30,14 +30,20 @@ def load_data(data_dir: str) -> list:
     data_path = Path(data_dir)
 
     if not data_path.exists():
-        raise FileNotFoundError(f"Directory {data_dir} does not exist")
+        raise FileNotFoundError(f"Path {data_dir} does not exist")
 
-    # Find all .jsonl files in the directory
-    jsonl_files = list(data_path.glob("*.jsonl"))
-
-    if not jsonl_files:
-        print(f"Warning: No .jsonl files found in {data_dir}")
-        return data
+    # Check if it's a file or directory
+    if data_path.is_file():
+        # Single file mode
+        jsonl_files = [data_path]
+        print(f"Loading single file: {data_path.name}")
+    else:
+        # Directory mode - find all .jsonl files in the directory
+        jsonl_files = list(data_path.glob("*.jsonl"))
+        
+        if not jsonl_files:
+            print(f"Warning: No .jsonl files found in {data_dir}")
+            return data
 
     # Load data from each JSONL file
     for jsonl_file in jsonl_files:
