@@ -104,12 +104,19 @@ class BaseHandler:
         user_id = f"{test_entry_id}_{frame}_{version}"
         search_rsps = self.memory_client.search(query=query, user_id=user_id, top_k=top_k)
 
-        # memories = [mem for mem in search_rsps["text_mem"][0]["memories"]]
-        memories = [mem for mem in search_rsps["tool_mem"][0]["memories"] if mem["metadata"]["memory_type"] == "ToolTrajectoryMemory"]
+        if frame == "memos-api":
+            # memories = [mem for mem in search_rsps["text_mem"][0]["memories"]]
+            memories = [mem for mem in search_rsps["tool_mem"][0]["memories"] if mem["metadata"]["memory_type"] == "ToolTrajectoryMemory"]
+        elif frame == "mem0":
+            memories = search_rsps
+        elif frame == "supermemory":
+            memories = search_rsps
+        else:
+            raise ValueError(f"Invalid frame: {frame}")
 
         return memories
 
-    def create_mem_context(self, memories: list[dict]) -> str:
+    def create_mem_context(self, memories: list[dict] | str | dict) -> str:
         frame = os.getenv("FRAME")
         if frame == "memos-api":
             # text_mem_context = "\n".join([f"{i+1}. fact_memory: {item['memory']}" for i, item in enumerate(memories)])
@@ -132,6 +139,12 @@ class BaseHandler:
                 tool_mem_context = "Tool Memory:\n" + tool_mem_context
 
             mem_context = text_mem_context + "\n" + tool_mem_context
+        elif frame == "mem0":
+            mem_context = "\n".join([f"{memory['created_at']}: {memory['memory']}" for memory in memories["results"]])
+        elif frame == "supermemory":
+            mem_context = memories
+        else:
+            raise ValueError(f"Invalid frame: {frame}")
 
         return mem_context.strip()
 
@@ -244,7 +257,7 @@ class BaseHandler:
         all_questions = [msg["content"] for turn in test_entry["question"] for msg in turn if msg["role"] == "user"]
         mem_list = []
         # Use thread pool to parallelize memory search
-        with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(all_questions), 5)) as executor:
             futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
             for future in futures:
                 mem_list.extend(future.result())
@@ -586,7 +599,7 @@ class BaseHandler:
                 all_questions = [msg["content"] for turn in all_multi_turn_messages for msg in turn if msg["role"] == "user"]
                 mem_list = []
                 # Use thread pool to parallelize memory search
-                with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
+                with ThreadPoolExecutor(max_workers=min(len(all_questions), 5)) as executor:
                     futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
                     for future in futures:
                         mem_list.extend(future.result())

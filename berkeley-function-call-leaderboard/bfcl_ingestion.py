@@ -116,16 +116,7 @@ def process_single_conversation(conversation, client, frame):
     elif frame == "memu":
         client.add(trajectory, user_id, datetime.now().isoformat())
     elif frame == "supermemory":
-        messages = []
-        for _idx, msg in enumerate(trajectory):
-            messages.append(
-                {
-                    "role": msg["role"],
-                    "content": msg["content"][:8000],
-                    "chat_time": datetime.now().isoformat(),
-                }
-            )
-        client.add(messages, user_id)
+        client.add(trajectory, user_id)
     elif frame == "mem0":
         client.add(trajectory, user_id, int(datetime.now().timestamp()))
     else:

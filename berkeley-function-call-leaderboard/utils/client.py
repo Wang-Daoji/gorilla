@@ -57,29 +57,29 @@ class Mem0Client:
 
     def add(self, messages, user_id, timestamp, batch_size=2):
         max_retries = 5
-        for i in range(0, len(messages), batch_size):
-            batch_messages = messages[i : i + batch_size]
-            for attempt in range(max_retries):
-                try:
-                    if self.enable_graph:
-                        self.client.add(
-                            messages=batch_messages,
-                            timestamp=timestamp,
-                            user_id=user_id,
-                            enable_graph=True,
-                        )
-                    else:
-                        self.client.add(
-                            messages=batch_messages,
-                            timestamp=timestamp,
-                            user_id=user_id,
-                        )
-                    break
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(2**attempt)
-                    else:
-                        raise e
+        content = json.dumps(messages, ensure_ascii=False)
+        input = [{"role": "user", "content": content}]
+        for attempt in range(max_retries):
+            try:
+                if self.enable_graph:
+                    self.client.add(
+                        messages=input,
+                        timestamp=timestamp,
+                        user_id=user_id,
+                        enable_graph=True,
+                    )
+                else:
+                    self.client.add(
+                        messages=input,
+                        timestamp=timestamp,
+                        user_id=user_id,
+                    )
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2**attempt)
+                else:
+                    raise e
 
     def search(self, query, user_id, top_k):
         res = self.client.search(
@@ -283,9 +283,7 @@ class SupermemoryClient:
         self.client = Supermemory(api_key=os.getenv("SUPERMEMORY_API_KEY"))
 
     def add(self, messages, user_id):
-        content = "\n".join(
-            [f"{msg['chat_time']} {msg['role']}: {msg['content']}" for msg in messages]
-        )
+        content = json.dumps(messages, ensure_ascii=False)
         max_retries = 5
         for attempt in range(max_retries):
             try:
