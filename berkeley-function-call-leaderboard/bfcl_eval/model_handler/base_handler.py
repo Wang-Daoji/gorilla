@@ -1,6 +1,7 @@
 import json
 import os
 
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
@@ -101,13 +102,21 @@ class BaseHandler:
         version = os.getenv("VERSION", "default_version")
         frame = os.getenv("FRAME")
         user_id = f"{test_entry_id}_{frame}_{version}"
-        search_context = self.memory_client.search(query=query, user_id=user_id, top_k=top_k)
+        search_rsps = self.memory_client.search(query=query, user_id=user_id, top_k=top_k)
+
+        # memories = [mem for mem in search_rsps["text_mem"][0]["memories"]]
+        memories = [mem for mem in search_rsps["tool_mem"][0]["memories"] if mem["metadata"]["memory_type"] == "ToolTrajectoryMemory"]
+
+        return memories
+
+    def create_mem_context(self, memories: list[dict]) -> str:
+        frame = os.getenv("FRAME")
         if frame == "memos-api":
-            # text_mem_context = "\n".join([f"{i+1}. fact_memory: {item['memory']}" for i, item in enumerate(search_context["text_mem"][0]["memories"])])
+            # text_mem_context = "\n".join([f"{i+1}. fact_memory: {item['memory']}" for i, item in enumerate(memories)])
             text_mem_context = ""
             tool_trajectory_memories = [
                 item
-                for item in search_context["tool_mem"][0]["memories"]
+                for item in memories
                 if item["metadata"]["memory_type"] == "ToolTrajectoryMemory"
             ]
             tool_mem_context = "\n".join(
@@ -124,8 +133,8 @@ class BaseHandler:
 
             mem_context = text_mem_context + "\n" + tool_mem_context
 
-        prompt = f"exacute tool call based on the memories below:\n\ {mem_context}\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`.\n\nQuery: {query}"
-        return prompt
+        return mem_context.strip()
+
 
     def inference(
         self,
@@ -231,6 +240,26 @@ class BaseHandler:
         inference_data = self._pre_query_processing_FC(inference_data, test_entry)
         inference_data = self._compile_tools(inference_data, test_entry)
 
+        # search from memory os and concat to the inference data
+        all_questions = [msg["content"] for turn in test_entry["question"] for msg in turn if msg["role"] == "user"]
+        mem_list = []
+        # Use thread pool to parallelize memory search
+        with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
+            futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
+            for future in futures:
+                mem_list.extend(future.result())
+        # dedup mem_list by id field
+        seen_ids = set()
+        dedup_mem_list = []
+        for item in mem_list:
+            if item.get("id") not in seen_ids:
+                seen_ids.add(item.get("id"))
+                dedup_mem_list.append(item)
+        mem_context = self.create_mem_context(dedup_mem_list)
+        prompt = f"Exacute tool call based on the memories below:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+        if mem_context:
+            inference_data["message"].insert(0, {"role": "developer", "content": prompt})
+
         all_multi_turn_messages: list[list[dict]] = test_entry["question"]
         for turn_idx, current_turn_message in enumerate(all_multi_turn_messages):
             current_turn_message: list[dict]
@@ -259,12 +288,6 @@ class BaseHandler:
                 inference_data = self._add_next_turn_user_message_FC(
                     inference_data, current_turn_message
                 )
-
-            # TODO: search from memory os and concat to the inference data (user content)
-            query = self.search_memory(
-                inference_data["message"][-1]["content"], test_entry["id"], 10
-            )
-            inference_data["message"][-1]["content"] = query
 
             current_turn_response = []
             current_turn_inference_log: list[dict] = {
@@ -558,11 +581,25 @@ class BaseHandler:
                     inference_data, current_turn_message
                 )
 
-            # TODO: search from memory os and concat to the inference data (user content)
-            query = self.search_memory(
-                inference_data["message"][-1]["content"], test_entry["id"], 10
-            )
-            inference_data["message"][-1]["content"] = query
+            # search from memory os and concat to the inference data
+            if turn_idx == 0:
+                all_questions = [msg["content"] for turn in all_multi_turn_messages for msg in turn if msg["role"] == "user"]
+                mem_list = []
+                # Use thread pool to parallelize memory search
+                with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
+                    futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
+                    for future in futures:
+                        mem_list.extend(future.result())
+                # dedup mem_list by id field
+                seen_ids = set()
+                dedup_mem_list = []
+                for item in mem_list:
+                    if item.get("id") not in seen_ids:
+                        seen_ids.add(item.get("id"))
+                        dedup_mem_list.append(item)
+                mem_context = self.create_mem_context(dedup_mem_list)
+                prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+                inference_data["message"][0]["content"] += prompt
 
             current_turn_response = []
             current_turn_reasoning_content = []
@@ -764,9 +801,12 @@ class BaseHandler:
         inference_data = self._compile_tools(inference_data, test_entry)
         inference_data = self.add_first_turn_message_FC(inference_data, test_entry["question"][0])
 
-        # TODO: search from memory os and concat to the inference data (user content)
-        query = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
-        inference_data["message"][-1]["content"] = query
+        # search from memory os and concat to the inference data
+        mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
+        mem_context = self.create_mem_context(mem_list)
+        prompt = f"Exacute tool call based on the memories below:\n{mem_context}\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`."
+        if mem_context:
+            inference_data["message"].insert(0, {"role": "developer", "content": prompt})
 
         api_response, query_latency = self._query_FC(inference_data)
 
@@ -803,9 +843,11 @@ class BaseHandler:
             inference_data, test_entry["question"][0]
         )
 
-        # TODO: search from memory os and concat to the inference data (user content)
-        query = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
-        inference_data["message"][-1]["content"] = query
+        # search from memory os and concat to the inference data
+        mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
+        mem_context = self.create_mem_context(mem_list)
+        prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n{mem_context}\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
+        inference_data["message"][0]["content"] += prompt
 
         api_response, query_latency = self._query_prompting(inference_data)
 
