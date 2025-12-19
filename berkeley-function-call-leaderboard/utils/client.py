@@ -307,8 +307,7 @@ class SupermemoryClient:
                     rewrite_query=True,
                     limit=top_k,
                 )
-                context = "\n\n".join([r.memory for r in results.results])
-                return context
+                return results
             except Exception as e:
                 if attempt < max_retries - 1:
                     time.sleep(2**attempt)

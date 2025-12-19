@@ -1,7 +1,7 @@
 import json
 import os
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
@@ -108,9 +108,9 @@ class BaseHandler:
             # memories = [mem for mem in search_rsps["text_mem"][0]["memories"]]
             memories = [mem for mem in search_rsps["tool_mem"][0]["memories"] if mem["metadata"]["memory_type"] == "ToolTrajectoryMemory"]
         elif frame == "mem0":
-            memories = search_rsps
+            memories = search_rsps["results"]
         elif frame == "supermemory":
-            memories = search_rsps
+            memories = search_rsps.results
         else:
             raise ValueError(f"Invalid frame: {frame}")
 
@@ -140,9 +140,9 @@ class BaseHandler:
 
             mem_context = text_mem_context + "\n" + tool_mem_context
         elif frame == "mem0":
-            mem_context = "\n".join([f"{memory['created_at']}: {memory['memory']}" for memory in memories["results"]])
+            mem_context = "\n".join([f"{memory['created_at']}: {memory['memory']}" for memory in memories])
         elif frame == "supermemory":
-            mem_context = memories
+            mem_context = "\n".join([memory["memory"] for memory in memories])
         else:
             raise ValueError(f"Invalid frame: {frame}")
 
@@ -257,14 +257,17 @@ class BaseHandler:
         all_questions = [msg["content"] for turn in test_entry["question"] for msg in turn if msg["role"] == "user"]
         mem_list = []
         # Use thread pool to parallelize memory search
-        with ThreadPoolExecutor(max_workers=min(len(all_questions), 5)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
             futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
-            for future in futures:
+            for future in as_completed(futures):
                 mem_list.extend(future.result())
         # dedup mem_list by id field
         seen_ids = set()
         dedup_mem_list = []
         for item in mem_list:
+            # Convert class instance to dict if needed
+            if not isinstance(item, dict):
+                item = item.__dict__ if hasattr(item, '__dict__') else dict(item)
             if item.get("id") not in seen_ids:
                 seen_ids.add(item.get("id"))
                 dedup_mem_list.append(item)
@@ -599,7 +602,7 @@ class BaseHandler:
                 all_questions = [msg["content"] for turn in all_multi_turn_messages for msg in turn if msg["role"] == "user"]
                 mem_list = []
                 # Use thread pool to parallelize memory search
-                with ThreadPoolExecutor(max_workers=min(len(all_questions), 5)) as executor:
+                with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
                     futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
                     for future in futures:
                         mem_list.extend(future.result())
@@ -607,6 +610,9 @@ class BaseHandler:
                 seen_ids = set()
                 dedup_mem_list = []
                 for item in mem_list:
+                    # Convert class instance to dict if needed
+                    if not isinstance(item, dict):
+                        item = item.__dict__ if hasattr(item, '__dict__') else dict(item)
                     if item.get("id") not in seen_ids:
                         seen_ids.add(item.get("id"))
                         dedup_mem_list.append(item)

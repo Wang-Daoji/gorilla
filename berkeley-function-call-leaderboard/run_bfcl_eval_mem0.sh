@@ -1,11 +1,10 @@
 #!/bin/bash
 
-LIB="memos-api"
+LIB="mem0"
 MODEL="gpt-4o-mini-2024-07-18-FC"
 WORKERS=10
 
 # laod env variables
-export MEMOS_URL=http://0.0.0.0:8001 # memos-api server url
 export VERSION="default_version"
 export TOPK=10
 export FRAME=$LIB
