@@ -1,7 +1,6 @@
 import json
 import os
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
@@ -68,7 +67,7 @@ class BaseHandler:
         for _key, _value in kwargs.items():
             setattr(self, _key, _value)
 
-        self.memory_client = self.get_client()
+        self.search_results_cache = self.load_search_results()
 
     def get_client(self) -> Any:
         if os.getenv("FRAME") == "memobase":
@@ -98,23 +97,43 @@ class BaseHandler:
         else:
             raise ValueError(f"Invalid frame: {os.getenv('FRAME')}")
 
-    def search_memory(self, query: str, test_entry_id: str, top_k: int) -> str:
-        version = os.getenv("VERSION", "default_version")
-        frame = os.getenv("FRAME")
-        user_id = f"{test_entry_id}_{frame}_{version}"
-        search_rsps = self.memory_client.search(query=query, user_id=user_id, top_k=top_k)
+    def load_search_results(self, search_result_file: str = None) -> dict:
+        """Load pre-computed search results from file.
+        
+        Args:
+            search_result_file: Path to the search results file. If None, uses default path.
+            
+        Returns:
+            A dictionary mapping test_entry_id to search results.
+        """
+        if search_result_file is None:
+            search_result_file = RESULT_PATH / "search_results.jsonl"
+        
+        search_results = {}
+        if not os.path.exists(search_result_file):
+            return search_results
+            
+        with open(search_result_file, "r") as f:
+            for line in f:
+                entry = json.loads(line)
+                search_results[entry["id"]] = entry
+        
+        return search_results
 
-        if frame == "memos-api":
-            # memories = [mem for mem in search_rsps["text_mem"][0]["memories"]]
-            memories = [mem for mem in search_rsps["tool_mem"][0]["memories"] if mem["metadata"]["memory_type"] == "ToolTrajectoryMemory"]
-        elif frame == "mem0":
-            memories = search_rsps["results"]
-        elif frame == "supermemory":
-            memories = search_rsps.results
-        else:
-            raise ValueError(f"Invalid frame: {frame}")
 
-        return memories
+
+    def get_cached_search_result(self, test_entry_id: str) -> str:
+        """Get cached search result for a test entry.
+        
+        Args:
+            test_entry_id: The test entry ID.
+            
+        Returns:
+            Memory context string. Empty string if not found.
+        """
+        if test_entry_id in self.search_results_cache:
+            return self.search_results_cache[test_entry_id].get("mem_context", "")
+        return ""
 
     def create_mem_context(self, memories: list[dict] | str | dict) -> str:
         frame = os.getenv("FRAME")
@@ -253,25 +272,8 @@ class BaseHandler:
         inference_data = self._pre_query_processing_FC(inference_data, test_entry)
         inference_data = self._compile_tools(inference_data, test_entry)
 
-        # search from memory os and concat to the inference data
-        all_questions = [msg["content"] for turn in test_entry["question"] for msg in turn if msg["role"] == "user"]
-        mem_list = []
-        # Use thread pool to parallelize memory search
-        with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
-            futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
-            for future in as_completed(futures):
-                mem_list.extend(future.result())
-        # dedup mem_list by id field
-        seen_ids = set()
-        dedup_mem_list = []
-        for item in mem_list:
-            # Convert class instance to dict if needed
-            if not isinstance(item, dict):
-                item = item.__dict__ if hasattr(item, '__dict__') else dict(item)
-            if item.get("id") not in seen_ids:
-                seen_ids.add(item.get("id"))
-                dedup_mem_list.append(item)
-        mem_context = self.create_mem_context(dedup_mem_list)
+        # Get pre-computed search results from cache
+        mem_context = self.get_cached_search_result(test_entry_id)
         prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
         if mem_context:
             inference_data["message"].insert(0, {"role": "developer", "content": prompt})
@@ -597,28 +599,12 @@ class BaseHandler:
                     inference_data, current_turn_message
                 )
 
-            # search from memory os and concat to the inference data
+            # Get pre-computed search results from cache (only on first turn)
             if turn_idx == 0:
-                all_questions = [msg["content"] for turn in all_multi_turn_messages for msg in turn if msg["role"] == "user"]
-                mem_list = []
-                # Use thread pool to parallelize memory search
-                with ThreadPoolExecutor(max_workers=min(len(all_questions), 10)) as executor:
-                    futures = [executor.submit(self.search_memory, question, test_entry["id"], 10) for question in all_questions]
-                    for future in futures:
-                        mem_list.extend(future.result())
-                # dedup mem_list by id field
-                seen_ids = set()
-                dedup_mem_list = []
-                for item in mem_list:
-                    # Convert class instance to dict if needed
-                    if not isinstance(item, dict):
-                        item = item.__dict__ if hasattr(item, '__dict__') else dict(item)
-                    if item.get("id") not in seen_ids:
-                        seen_ids.add(item.get("id"))
-                        dedup_mem_list.append(item)
-                mem_context = self.create_mem_context(dedup_mem_list)
+                mem_context = self.get_cached_search_result(test_entry_id)
                 prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
-                inference_data["message"][0]["content"] += prompt
+                if mem_context:
+                    inference_data["message"][0]["content"] += prompt
 
             current_turn_response = []
             current_turn_reasoning_content = []
@@ -820,9 +806,8 @@ class BaseHandler:
         inference_data = self._compile_tools(inference_data, test_entry)
         inference_data = self.add_first_turn_message_FC(inference_data, test_entry["question"][0])
 
-        # search from memory os and concat to the inference data
-        mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
-        mem_context = self.create_mem_context(mem_list)
+        # Get pre-computed search results from cache
+        mem_context = self.get_cached_search_result(test_entry["id"])
         prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`."
         if mem_context:
             inference_data["message"].insert(0, {"role": "developer", "content": prompt})
@@ -862,11 +847,11 @@ class BaseHandler:
             inference_data, test_entry["question"][0]
         )
 
-        # search from memory os and concat to the inference data
-        mem_list = self.search_memory(inference_data["message"][-1]["content"], test_entry["id"], 10)
-        mem_context = self.create_mem_context(mem_list)
+        # Get pre-computed search results from cache
+        mem_context = self.get_cached_search_result(test_entry["id"])
         prompt = f"\nWhen you make decisions, you may reference the following memory experiences:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
-        inference_data["message"][0]["content"] += prompt
+        if mem_context:
+            inference_data["message"][0]["content"] += prompt
 
         api_response, query_latency = self._query_prompting(inference_data)
 
