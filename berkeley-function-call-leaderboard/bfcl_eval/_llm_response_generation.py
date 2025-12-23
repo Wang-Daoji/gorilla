@@ -62,13 +62,14 @@ def get_args():
     return args
 
 
-def build_handler(model_name, temperature):
+def build_handler(model_name, temperature, search_result_file=None):
     config = MODEL_CONFIG_MAPPING[model_name]
     handler = config.model_handler(
         model_name=config.model_name,
         temperature=temperature,
         registry_name=model_name,
         is_fc_model=config.is_fc_model,
+        search_result_file=search_result_file,
     )
     return handler
 
@@ -202,7 +203,7 @@ def multi_threaded_inference(handler, test_case, include_input_log, exclude_stat
 
 
 def generate_results(args, model_name, test_cases_total):
-    handler = build_handler(model_name, args.temperature)
+    handler = build_handler(model_name, args.temperature, search_result_file=str(Path(args.result_dir) / "search_results.jsonl"))
 
     if isinstance(handler, OSSHandler):
         handler: OSSHandler

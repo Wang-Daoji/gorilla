@@ -71,39 +71,6 @@ def search_memory(client: Any, query: str, test_entry_id: str, top_k: int) -> li
     return memories
 
 
-def create_mem_context(memories: list[dict] | str | dict) -> str:
-    """Create memory context from search results."""
-    frame = os.getenv("FRAME")
-    if frame == "memos-api":
-        text_mem_context = ""
-        tool_trajectory_memories = [
-            item
-            for item in memories
-            if item["metadata"]["memory_type"] == "ToolTrajectoryMemory"
-        ]
-        tool_mem_context = "\n".join(
-            [
-                f"{i + 1}. tool_trajectory: {item['memory']}\nexperience: {item['metadata']['experience']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
-                for i, item in enumerate(tool_trajectory_memories)
-            ]
-        )
-
-        if text_mem_context:
-            text_mem_context = "Fact Memory:\n" + text_mem_context
-        if tool_mem_context:
-            tool_mem_context = "Tool Memory:\n" + tool_mem_context
-
-        mem_context = text_mem_context + "\n" + tool_mem_context
-    elif frame == "mem0":
-        mem_context = "\n".join([f"{memory['created_at']}: {memory['memory']}" for memory in memories])
-    elif frame == "supermemory":
-        mem_context = "\n".join([memory["memory"] for memory in memories])
-    else:
-        raise ValueError(f"Invalid frame: {frame}")
-
-    return mem_context.strip()
-
-
 def get_involved_test_entries(test_category_args, run_ids):
     """Load test entries based on category or ID file."""
     all_test_categories, all_test_entries_involved = [], []
@@ -180,20 +147,11 @@ def search_single_test_case(client: Any, test_case: dict, top_k: int = 10) -> di
             seen_ids.add(item_id)
             dedup_mem_list.append(item)
     
-    # Create memory context
-    mem_context = ""
-    if dedup_mem_list:
-        try:
-            mem_context = create_mem_context(dedup_mem_list)
-        except Exception as e:
-            tqdm.write(f"Error creating memory context for test case {test_entry_id}: {str(e)}")
-    
     # Return search result
     result = {
         "id": test_entry_id,
         "questions": all_questions,
         "memories": dedup_mem_list,
-        "mem_context": mem_context,
     }
     
     return result
