@@ -67,7 +67,7 @@ class BaseHandler:
         for _key, _value in kwargs.items():
             setattr(self, _key, _value)
 
-        self.search_results_cache = self.load_search_results()
+        self.search_results_cache = self.load_search_results(search_result_file=kwargs.get("search_result_file", None))
 
     def get_client(self) -> Any:
         if os.getenv("FRAME") == "memobase":
@@ -132,23 +132,38 @@ class BaseHandler:
             Memory context string. Empty string if not found.
         """
         if test_entry_id in self.search_results_cache:
-            return self.search_results_cache[test_entry_id].get("mem_context", "")
+            cached_entry = self.search_results_cache[test_entry_id]
+            # Build mem_context from cached memories
+            memories = cached_entry.get("memories", [])
+            if memories:
+                try:
+                    return self.create_mem_context(memories)
+                except Exception as e:
+                    print(f"Error creating memory context for test case {test_entry_id}: {str(e)}")
+                    return ""
         return ""
 
     def create_mem_context(self, memories: list[dict] | str | dict) -> str:
+        """Create memory context from search results."""
         frame = os.getenv("FRAME")
         if frame == "memos-api":
-            # text_mem_context = "\n".join([f"{i+1}. fact_memory: {item['memory']}" for i, item in enumerate(memories)])
             text_mem_context = ""
             tool_trajectory_memories = [
                 item
                 for item in memories
                 if item["metadata"]["memory_type"] == "ToolTrajectoryMemory"
             ]
+            # Only include tool memories with experience
+            # tool_mem_context = "\n".join(
+            #     [
+            #         f"{i + 1}. tool_trajectory: {item['memory']}\nexperience: {item['metadata']['experience']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
+            #         for i, item in enumerate(tool_trajectory_memories) if item["metadata"]["experience"].strip()
+            #     ]
+            # )
             tool_mem_context = "\n".join(
                 [
-                    f"{i + 1}. tool_trajectory: {item['memory']}\nexperience: {item['metadata']['experience']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
-                    for i, item in enumerate(tool_trajectory_memories)
+                    f"{i + 1}. experience: {item['metadata']['experience']}\ntool_used_status: {json.dumps(item['metadata']['tool_used_status'], ensure_ascii=False)}"
+                    for i, item in enumerate(tool_trajectory_memories) if item["metadata"]["experience"].strip()
                 ]
             )
 
@@ -276,7 +291,7 @@ class BaseHandler:
         mem_context = self.get_cached_search_result(test_entry_id)
         prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly refer memory those relevant to the current question, follow successful experiences and avoid erroneous experiences."
         if mem_context:
-            inference_data["message"].insert(0, {"role": "developer", "content": prompt})
+            inference_data["message"].insert(0, {"role": "system", "content": prompt})
 
         all_multi_turn_messages: list[list[dict]] = test_entry["question"]
         for turn_idx, current_turn_message in enumerate(all_multi_turn_messages):
@@ -810,7 +825,7 @@ class BaseHandler:
         mem_context = self.get_cached_search_result(test_entry["id"])
         prompt = f"Exacute tool call based on the memories below:\n<memory_context>\n{mem_context}\n</memory_context>\nOnly use information from relevant memories, follow successful experiences and avoid erroneous experiences. \n\n`Only output tool call commands, no other text`."
         if mem_context:
-            inference_data["message"].insert(0, {"role": "developer", "content": prompt})
+            inference_data["message"].insert(0, {"role": "system", "content": prompt})
 
         api_response, query_latency = self._query_FC(inference_data)
 
