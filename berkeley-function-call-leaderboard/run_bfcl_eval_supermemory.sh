@@ -3,6 +3,7 @@
 LIB="supermemory"
 MODEL="gpt-4o-mini-2024-07-18-FC"
 WORKERS=10
+LLM_WORKERS=30
 
 # laod env variables
 export VERSION="default_version"
@@ -23,6 +24,7 @@ echo "================================"
 echo "LIB: $LIB"
 echo "MODEL: $MODEL"
 echo "WORKERS: $WORKERS"
+echo "LLM_WORKERS: $LLM_WORKERS"
 echo "VERSION: $VERSION"
 echo "TOPK: $TOPK"
 echo "FRAME: $FRAME"
@@ -48,7 +50,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Running bfcl_generate.py..."
-python openfunctions_evaluation.py --num-threads $WORKERS --model $MODEL --result-dir $RESULT_DIR --test-category multi_turn single_turn
+python openfunctions_evaluation.py --num-threads $LLM_WORKERS --model $MODEL --result-dir $RESULT_DIR --test-category multi_turn single_turn
 if [ $? -ne 0 ]; then
     echo "Error running bfcl_generate.py"
     exit 1
