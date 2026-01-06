@@ -1,8 +1,8 @@
 #!/bin/bash
 
 LIB="memos-api"
-MODEL="gpt-4o-mini-2024-07-18-FC"
-WORKERS=10
+MODEL="qwen3-8b-FC"
+WORKERS=30
 LLM_WORKERS=30
 
 # laod env variables
@@ -44,21 +44,21 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Running bfcl_search.py..."
-python bfcl_search.py --num-threads $WORKERS --result-dir $RESULT_DIR --test-category multi_turn single_turn
+python bfcl_search.py --num-threads $WORKERS --result-dir $RESULT_DIR --test-category live
 if [ $? -ne 0 ]; then
     echo "Error running bfcl_search.py"
     exit 1
 fi
 
 echo "Running bfcl_generate.py..."
-python openfunctions_evaluation.py --num-threads $LLM_WORKERS --model $MODEL --result-dir $RESULT_DIR --test-category multi_turn single_turn
+python openfunctions_evaluation.py --num-threads $LLM_WORKERS --model $MODEL --result-dir $RESULT_DIR --test-category single_turn
 if [ $? -ne 0 ]; then
     echo "Error running bfcl_generate.py"
     exit 1
 fi
 
 echo "Running bfcl_evaluate.py..."
-python bfcl_eval/eval_checker/eval_runner.py --model $MODEL --result-dir $RESULT_DIR --score-dir $SCORE_DIR --test-category  multi_turn single_turn
+python bfcl_eval/eval_checker/eval_runner.py --model $MODEL --result-dir $RESULT_DIR --score-dir $SCORE_DIR --test-category  single_turn
 if [ $? -ne 0 ]; then
     echo "Error running bfcl_evaluate.py"
     exit 1
