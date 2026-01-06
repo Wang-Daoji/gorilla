@@ -6,7 +6,7 @@ WORKERS=10
 
 # laod env variables
 export VERSION="default_version"
-export TOPK=10
+export TOPK=5
 export FRAME=$LIB
 
 RESULT_DIR="results/${LIB}_${VERSION}"
@@ -37,6 +37,13 @@ echo "Running bfcl_ingestion.py..."
 python bfcl_ingestion.py --lib $LIB --workers $WORKERS --data-dir $DATA_DIR --record-dir $RESULT_DIR
 if [ $? -ne 0 ]; then
     echo "Error running bfcl_ingestion.py"
+    exit 1
+fi
+
+echo "Running bfcl_search.py..."
+python bfcl_search.py --num-threads $WORKERS --result-dir $RESULT_DIR --test-category multi_turn single_turn
+if [ $? -ne 0 ]; then
+    echo "Error running bfcl_search.py"
     exit 1
 fi
 
